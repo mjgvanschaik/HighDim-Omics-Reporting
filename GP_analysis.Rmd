@@ -1,0 +1,100 @@
+---
+title: "GlycoProteins"
+author: "Maarten van Schaik"
+date: "16 October 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Required packages
+require(tidyverse)
+require(broom)
+require(stargazer)
+require(xtable)
+require(gridExtra) # to plot muliple panels together using grid.arrange()
+```
+
+```{r}
+# Create some fake data using different Gamma distributions to mimic the shape 
+# of real GP values
+beta <- c(5, 4, 36, 40, 90, 35, 36, 35, 6.25, 4.5)
+alpha <- c(0.5, 2, 6, 8, 2, 5, 6, 5, 2.5, 3)
+N <- 1666
+P <- 10
+GP <- as.tbl(data.frame(matrix(NA, nrow=N, ncol=P)))
+colnames(GP) <- paste0("GP", 1:10)
+set.seed(1234)
+for(i in 1:P){
+  GP[,i] <- rgamma(n=N,
+                   rate=alpha[i],
+                   shape=beta[i])
+}
+
+# Normalise the data to make comparable across GPs. I also do this to avoid
+# the problem of unequal x-ranges in histograms when plotting together using
+# the lattice trellis plot
+GP <- as.tbl(as.data.frame(scale(GP, center=TRUE, scale=TRUE)))
+
+# Make into long format to use as input for lattice histogram trellis plot
+GP_long <- GP2 %>%
+  gather(GP, value, GP1:GP10)
+
+# lattice trellis plot
+lattice::histogram(~value | GP, 
+                   data=GP_long,
+                   scales="free")
+
+```
+
+```{r}
+# Create fake predictors
+X <- data.frame(id = factor(1:N),
+                CTR_DIAB = factor(rbinom(n=N, size=1, p=0.5)),
+                Complications = factor(rbinom(n=N, size=1, p=0.45)),
+                Metabolic = factor(rbinom(n=N, size=1, p=0.25)),
+                Age = rnorm(n=N, mean=58.5, sd=12.4),
+                Sex = factor(rbinom(n=N, size=1, p=0.5)))
+
+# Combine with fake GP outcomes
+GP_wide <- as.tbl(cbind(X, GP))
+```
+
+# Proposed analysis (slow, by hand)
+
+```{r, eval=FALSE}
+## Table 2. Glycans ~ B1*CTR_DIAB + B2*Complications + Age + Sex
+for (i in Glycan_Peaks.colonne){
+  Taula.2 <- lm(Glycans[,i] ~ CTR_DIAB + Complications + eta + Sesso, Data_Gly_Comp)
+  Vector_Peaks <- c(Vector_Peaks,lm(Taula.2))
+  print(summary(Taula.2))
+  print(summary(Taula.2)$coefficients)
+  
+  # How to extract the summary for each glycan peak?
+  SE <- summary(Taula.2)[["coefficients"]][, "Std. Error"]
+  P.value <- summary(Taula.2)[["coefficients"]][, "Pr(>|t|)"]
+  #Taula.2.PValue <- data.frame(P.value)
+  Taula.2.PValue[,i] <- data.frame(P.value)
+  #Taula.2.SE <- data.frame(SE)
+  Taula.2.SE[,i] <- data.frame(SE)
+  # It doesn't work
+}
+
+```
+
+# More efficiently, using packages
+
+First, combine the GP values and predictors in one table (already done above)
+Then, we want to make a linear model for each GP, seperately. We can do this efficiently using map functions. For this, the data must be in long format first. 
+
+```{r}
+# Make long format
+GP_long <- GP_wide %>%
+  gather(GP, value, GP1:GP10) %>%
+  arrange(id) 
+
+GP_long
+
+
+```
+
