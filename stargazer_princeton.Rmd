@@ -1,0 +1,77 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## Descriptive statistics: in text format
+
+`stargazer` will automatically recognize the type of object, and will produce the appropriate output. In the case of data frames, it will display summary statistics. For more details/options, type `?stargazer`
+
+With `out`, the table will be saved in the working directory with whatever name you write in this option. You can open this file with any word processor.
+
+```{r}
+mydata <- mtcars
+# install.packages("stargazer") # Use this to install it, do this only once
+library(stargazer)
+stargazer(mydata, 
+          type="text", 
+          title="Descriptive statistics", 
+          digits=1,
+          out="table1.txt")
+```
+
+```{r}
+# Same output, transposed (variables in columns)
+stargazer(mydata,
+          type="text",
+          title="Descriptive statistics",
+          digits=1,
+          out="table1.txt",
+          flip=TRUE) # Use this option to transpose output)
+```
+
+## Descriptive statistics: in text format, replacing variable names with labels
+
+## Regression models: various outputs
+
+```{r}
+mydata$fast <- as.numeric((mydata$mpg > 20.1))
+m1 <- lm(mpg ~ hp, 
+         data=mydata)
+m2 <- lm(mpg ~ hp + drat, 
+         data=mydata)
+m3 <- lm(mpg ~ hp + drat + factor(gear), 
+         data=mydata)
+m4 <- glm(fast ~ hp + drat + am, 
+          family=binomial(link="logit"), 
+          data=mydata)
+
+# Display table as text
+stargazer(m1,
+          m2,
+          m3,
+          m4,
+          type="text")
+
+# Display table HTML code and save as .htm file (you can open this in word or browser)
+# Also change the labels of the predictors (covariate.labels option) 
+# Also add a note to explain the outcome variables (dep.var.caption option)
+stargazer(m1,
+          m2,
+          m3,
+          m4,
+          type="htm",
+          dep.var.caption=c("Miles/(US) gallon",
+                          "Fast car (=1)"),
+          covariate.labels=c("Gross horsepower",
+                             "Rear axle ratio",
+                             "Four forward gears",
+                             "Five forward gears",
+                             "Type of transmission (manual=1)"),
+          out="models.htm")
+
+```
+
+
+ 
+ 
