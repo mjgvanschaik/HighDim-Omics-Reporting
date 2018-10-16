@@ -1,0 +1,189 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+# install.packages("oompaData")
+require(oompaData) # install first if you don't have it yet
+require(tidyverse) # you should have this... it's great
+# see: https://cran.r-project.org/web/packages/oompaData/oompaData.pdf
+# to see the functions, type oompaData:: and wait for the pop-up
+```
+
+# Introduction and data set
+
+the `oompaData` package seems to come with 2 datasets. I am grabbing the first dataset from this package which is stored in 2 objects: `clinical.info` and `expression.data`. I am grabbing these and storing them into the shorter-to-write `clin` and `expr` objects. I'm also using the tidyverse package to convert them from data frames into data tables ('tbl'), this doesn't affect the data very much but it makes it easier to work with for me, because I like tidyverse functions. 
+
+For information on the clinical data, see `?oompaData::clinical.info`.
+Likewise for the expression data: `?oompaData::expression.data`.
+(Note: `expr` has to go through some functions to get a 'clean' transpose: originally, it comes as genes-by-samples, but I wanted samples-by-genes)
+
+```{r}
+clin <- as.tbl(oompaData::clinical.info)
+expr <- as.tbl(data.frame(t(oompaData::expression.data)))
+```
+
+# Many regression models
+
+It is hugely helpful if you read through the tutorials by Emorie Beck, which you can find here: https://emoriebeck.github.io/R-tutorials/purrr/ 
+
+I will now show how to apply the techniques from Emorie's tutorial, on a genetics dataset. The 'bad' option... making 2000 models by hand and then having to copy-pasted the relevant results out of the model summaries. Why 2000 different models? Well, I have 112 samples and each sample has been measured on 40,000 or so genes, and 2000 genes have been randomly selected for publication in this R data set. So for each of the 2000 genes, I could make a model like
+
+$$y_i = \beta_0 + \beta_1 \times \text{Status}_i + \beta_2 \times \text{ChipType}_i + \epsilon_i$$
+
+where $y_i$ is the gene expression, `Status`$_i$ the tumor status, and `ChipType`$_i$ the microarray print design, of the $i$-th sample (for more details, see `?oompaData::clinical.info`)
+
+```{r}
+lm1 <- lm(expr$X41934 ~ clin$Status + clin$ChipType)
+summary(lm1)
+```
+
+Yeah I really don't wanna be copy-pasting the code for my model 2000 times, plus having to copy-paste whatever output I have in my results from those models. 
+
+The tutorial from Emorie shows us how we can use the `purrr` `broom` and `tidyverse` packages to let `R` do the work for us. All we need to do is invest a little bit of time to understand the syntax of the necessary functions, and understand how those functions like to see their input.
+
+```{r}
+# combine gene expressions with clinical data
+df <- as.tbl(cbind(clin, expr))
+
+# convert to "long" format:
+df <- df %>%
+    gather(...=contains("X"), # take the columns containing an X in the name...
+           key="gene",        # collect the column names into a new column called gene...
+           value="y")         # and store the values in a new column called y.
+
+# Now prepare our data for the purrr::map() function. We will get an R object
+# containing a data frame of predictors, for each of the outcome variables (so,
+# for each of the genes). All these frames are stored in 1 R object, though.
+# this is done using the nest() function.
+
+df_nested <- df %>%
+    group_by(gene) %>%
+    nest()
+
+df_nested           # a look at the structure of this new object... a data frame of data frames!
+df_nested[[2]][[1]] # a look at the first of the nested tables
+```
+
+
+# Summarizing models in one table
+
+Now we follow the steps under the section "The map() Functions" of https://emoriebeck.github.io/R-tutorials/purrr/ 
+
+Below, after the assignment operator `<-` I am telling R, in this order:
+
+(1) Take the object `df_nested` and then...
+(2) use `mutate` to construct a new 'column' inside `df_nested` which is named `model`, which is...
+(3) a result of the `map` function. `map` takes the data frames in `df_nested` named `data`, and...
+(4) applies to each data frame a linear model (`lm`) which uses the columns `y`, `Status` and `ChipType` which appear in each of those data frames in `data`. 
+(5) `lm` wants to know the location of the data, and `map` passes it on as `.` inside itself. 
+
+We then use `broom::tidy` (i.e. function `tidy` from the `broom` package) to "tidy up" the model results.
+
+```{r}
+# For each of the 2000 genes, calculate a simple linear regression
+df_nested <- df_nested %>%                               # (1)
+    mutate(model = map(.x=data,                          # (2), (3)
+                       .f=~lm(y ~ Status + ChipType,     # (4)
+                              data = .)))                # (5)
+
+# For each of the 2000 models, create tidy output
+df_nested <- df_nested %>%
+  mutate(tidy = map(.x=model, 
+                    .f=broom::tidy))
+```
+
+Now we follow the steps under the section "Unnesting" of https://emoriebeck.github.io/R-tutorials/purrr/
+
+If you are unsure about what a function does, remember to check it's help file, f.e. `?unnest`
+
+```{r}
+# Take the 2000 tidy model outputs and summarise them neatly
+df_nested %>%
+    unnest(tidy, 
+           .drop = T)
+```
+
+We follow the steps under "Create a Table":
+
+```{r}
+# Same as above, but rename 2 columns and save as object named 'tab'
+tab <- df_nested %>%
+  unnest(tidy, .drop = T)  %>%
+  dplyr::rename(b = estimate, SE = std.error) # stress dplyr:: since plyr also has a rename() fnctn
+
+tab
+```
+
+The steps under "Plots". For 2000 genes a similar plot doesn't look that great, but perhaps later I'll want to something more interesting with this so I'll leave this here for now. 
+
+```{r}
+df_nested %>%
+  unnest(tidy, .drop = T) %>%
+  filter(term == "StatusN") %>%                       # Select Normal tumor status predictor
+  ggplot(aes(x = gene, y = estimate)) +               # plot genes vs. beta coef. for Normal tumours...
+    geom_hline(aes(yintercept = 0), linetype = "dashed") + # add a dashed line at zero
+    geom_errorbar(aes(ymin = estimate - std.error, ymax = estimate + std.error),
+                  width = .1) +
+    # geom_point(aes(color = gene), size = 3) +          # points can look nice, but too much for 2000 genes
+    coord_flip() +
+    # facet_wrap(~outcome, scale = "free") +          # only one outcome (genes). no need for facets
+    theme_classic() +
+    theme(legend.position = "none")
+```
+
+# Table with multiple results
+
+Let us step away from Emorie's tutorial for now and focus on making a table showing multiple models. 2000 models is a bit much. Let's focus on the 10 most predictive genes for `ChipType`. I don't bother with multiple testing corrections like Bonferroni because I just want to show how to make the tables.
+
+(for more details, see `?oompaData::clinical.info`)
+
+I'm also using some inspiration from this StackExchange: https://stackoverflow.com/questions/50341020/how-to-flip-a-regression-table-in-stargazer 
+
+```{r}
+# Select the 10 most predictive genes for Prostate Cancer:
+# I could just copy paste these results somehow or followthe steps in Emorie's tutorial
+top10 <- tab %>%
+    filter(term=="StatusT") %>%
+    arrange(p.value) %>%
+    head(n=10) %>%
+    select(gene) %>%
+    unlist()
+
+# Get the models
+top10models <- df_nested %>%
+    filter(gene %in% top10) %>%
+    select(model)
+
+stargazer(coef(summary(top10models[[1]][[1]])),
+          coef(summary(top10models[[1]][[2]])),
+          # coef(summary(top10models[[1]][[3]])),
+          # coef(summary(top10models[[1]][[4]])),
+          # coef(summary(top10models[[1]][[5]])),
+          # coef(summary(top10models[[1]][[6]])),
+          # coef(summary(top10models[[1]][[7]])),
+          # coef(summary(top10models[[1]][[8]])),
+          # coef(summary(top10models[[1]][[9]])),
+          coef(summary(top10models[[1]][[10]])),
+          flip=TRUE,
+          type="text")
+
+# better table
+t <- tab %>% filter(gene %in% top10)
+
+stargazer(t)
+```
+
+
+See answer by PKumar in this thread: https://stackoverflow.com/questions/50341020/how-to-flip-a-regression-table-in-stargazer 
+
+```{r}
+# helper function
+extract_model <- function(model){
+    data.frame(t(coef(summary(model))))
+}
+model1 <- extract_model(top10models[[1]][[1]])
+```
