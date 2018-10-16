@@ -1,0 +1,50 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(psych)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+library(plyr)
+library(tidyverse)
+```
+
+
+# Nested Data Frames
+
+Before we can learn how to use purrr, we need to understand what a nested data frame is. If you’ve ever worked with a list in R, you are halfway there. Basically a nested data frame takes the normal data frame you are probably familiar with and adds some new features. It still has columns, rows, and cells, but what makes up those cells isn’t restrictred to numbers, strings, or logicals. Instead, you can put essentially anything you want: lists, models, data frames, plots, etc!
+
+If that freaks you out a bit, imagine this. Imagine you are me: you work with personality data and want to use each of the Big 5 to individually predict some outcomes, like health and life satisfaction.
+
+```{r}
+ipip50 <- read.csv("https://raw.githubusercontent.com/emoriebeck/R-tutorials/master/purrr/ipip50_sample.csv", stringsAsFactors = F)
+
+# let's recode the exercise variable (exer)
+# 0 = "veryRarelyNever"; 1 = "less1mo"; 2 = "less1wk"; 3 = "1or2wk"; 4 = "3or5wk"; 5 = "more5wk"
+ipip50 <- ipip50 %>% 
+    mutate(exer = mapvalues(exer, unique(exer), c(3,4,0,5,2,1))) %>%
+    as.tbl
+
+ipip50
+```
+
+The really bad solution would be to write the code to model these data, make a table of the results, and make a plot. Then you would copy and paste that code 9 times to do the same steps for the other trait-outcome pairs, changing the key variables. Sometime later, you could run those individually.
+
+A better solution would be a loop, where you use a nested loop to complete the steps for each trait-outcome pair. How you store these values can be a little wonky and often involes a bunch of different lists or a cluttered global environment with losts of objects.
+
+But the best solution is purrr. What does this look like? Well, we start with a nested data frame:
+
+```{r}
+df <- expand.grid(
+  Trait = c("E", "A", "C", "N", "O"),
+  Outcome = c("BMI", "logMediInc", "exer"),
+  stringsAsFactors = F
+) %>%
+  tbl_df
+
+df
+```
+
