@@ -62,7 +62,7 @@ df <- df %>%
 
 df_nested <- df %>%
     group_by(gene) %>%
-    nest()
+    nest()                    # Create nested data frames
 
 df_nested           # a look at the structure of this new object... a data frame of data frames!
 df_nested[[2]][[1]] # a look at the first of the nested tables
