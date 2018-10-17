@@ -121,9 +121,11 @@ tab
 The steps under "Plots". For 2000 genes a similar plot doesn't look that great, but perhaps later I'll want to something more interesting with this so I'll leave this here for now. 
 
 ```{r}
+png(filename="plots/30genes_effectsize.png", width=720, height=720)
 df_nested %>%
   unnest(tidy, .drop = T) %>%
-  filter(term == "StatusN") %>%                       # Select Normal tumor status predictor
+  filter(term == "StatusT") %>%                       # Select Normal tumor status predictor
+  slice(1:30) %>%
   ggplot(aes(x = gene, y = estimate)) +               # plot genes vs. beta coef. for Normal tumours...
     geom_hline(aes(yintercept = 0), linetype = "dashed") + # add a dashed line at zero
     geom_errorbar(aes(ymin = estimate - std.error, ymax = estimate + std.error),
@@ -132,7 +134,9 @@ df_nested %>%
     coord_flip() +
     # facet_wrap(~outcome, scale = "free") +          # only one outcome (genes). no need for facets
     theme_classic() +
-    theme(legend.position = "none")
+    theme(legend.position = "none") +
+  ggtitle("Effect of genes on tumour status")
+dev.off()
 ```
 
 # Table with multiple results
