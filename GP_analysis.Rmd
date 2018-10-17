@@ -3,7 +3,15 @@ title: "GlycoProteins"
 author: "Maarten van Schaik"
 date: "16 October 2018"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
+
+In this Markdown, I am exploring some options to display the results of multiple regression models in tabular format easily. This involves 3 steps:
+
+1) Create some fake Glycan Peaks data (since I have no real data to show)
+2) Use the `R` packages `tidyverse` and `broom` to efficiently calculate many models. This is highly preferred over making the models 'by hand' and copy-pasting code, because this automated way scales to any number of models, so running models over 1000 GPs is the same amount of code as over just 2 GPs.
+3) Using the `stargazer` package to print out model results in a nice looking manner. It knows text, html and LaTeX. Later on, I might want to explore the `xtable` package as well (not yet done)
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -11,13 +19,19 @@ knitr::opts_chunk$set(echo = TRUE)
 require(tidyverse)
 require(broom)
 require(stargazer)
-require(xtable)
-require(gridExtra) # to plot muliple panels together using grid.arrange()
+require(lattice) # for the plot in step 1
+# require(xtable) # Maybe use later
+# require(gridExtra) # to plot muliple panels together using grid.arrange()
 ```
 
+# Create fake data
+
+First, create some fake GP data and predictor data. I am just sampling from a couple of different gamma distributions to mimic GP distributions. I then normalize them so they all have mean 0 and sd 1. This makes it slightly easier to compare the distributions and the beta regression coefficients later on.
+
 ```{r}
-# Create some fake data using different Gamma distributions to mimic the shape 
+# Create some fake outcomes using different Gamma distributions to mimic the shape 
 # of real GP values
+# However,they are completely independent of each other and the predictors
 beta <- c(5, 4, 36, 40, 90, 35, 36, 35, 6.25, 4.5)
 alpha <- c(0.5, 2, 6, 8, 2, 5, 6, 5, 2.5, 3)
 N <- 1666
@@ -37,7 +51,7 @@ for(i in 1:P){
 GP <- as.tbl(as.data.frame(scale(GP, center=TRUE, scale=TRUE)))
 
 # Make into long format to use as input for lattice histogram trellis plot
-GP_long <- GP2 %>%
+GP_long <- GP %>%
   gather(GP, value, GP1:GP10)
 
 # lattice trellis plot
@@ -62,6 +76,8 @@ GP_wide <- as.tbl(cbind(X, GP))
 
 # Proposed analysis (slow, by hand)
 
+Do not run this code. It would be a way to (attempt to) extract model results for several different GP models using for loops and model summaries.
+
 ```{r, eval=FALSE}
 ## Table 2. Glycans ~ B1*CTR_DIAB + B2*Complications + Age + Sex
 for (i in Glycan_Peaks.colonne){
@@ -84,6 +100,8 @@ for (i in Glycan_Peaks.colonne){
 
 # More efficiently, using packages
 
+Now use the packages to run many models and extract results. 
+
 First, combine the GP values and predictors in one table (already done above)
 Then, we want to make a linear model for each GP, seperately. We can do this efficiently using map functions. For this, the data must be in long format first. 
 
@@ -95,6 +113,81 @@ GP_long <- GP_wide %>%
 
 GP_long
 
+# Make nested
+GP_nested <- GP_long %>%
+  group_by(GP) %>%
+  nest()
 
+GP_nested # A tibble containing tibbles for each GP outcome variable
+GP_nested$data[[1]] # The first GP-tibble. the 'values' correspond to GP1 values
 ```
 
+
+```{r}
+# Calculating the 10 linear models (one for each GP)
+
+# For each of the 10 GPs, calculate a simple linear regression
+GP_nested <- GP_nested %>%                               
+    mutate(model = map(.x=data,                          
+                       .f=~lm(value ~ CTR_DIAB + Complications + Metabolic + Age + Sex,    
+                              data = .)))                
+
+# For each of the 10 models, create tidy output
+GP_nested <- GP_nested %>%
+  mutate(tidy = map(.x=model, 
+                    .f=broom::tidy))
+
+# Collect the main statistics for each model 
+GP_summary <- GP_nested %>%
+    unnest(tidy, 
+           .drop = T)
+
+# P-values
+GP_summary_pvals <- GP_summary %>% 
+  filter(term!="(Intercept)") %>%
+  select(GP, term, p.value) %>%
+  spread(term, p.value)
+
+# beta coefficient values
+GP_summary_betavals <- GP_summary %>%
+  filter(term!="(Intercept)") %>%
+  select(GP, term, estimate) %>%
+  spread(term, estimate)
+```
+
+# Let's make some tables
+
+```{r}
+# stargazer text table
+stargazer(data.frame(GP_summary_pvals), # Treat table as a data frame for proper rounding using digits=3
+          type="text",                  # Choose a text-style table (so no HTML, LaTeX...)
+          summary=FALSE,                # Don't summarize the data, just print the real values
+          digits=3,                     # round the numbers in the table to 3 decimals
+          title="Fake data glycan peaks p-values", 
+          notes="alpha = 0.05")   
+```
+
+```{r, eval=FALSE}
+# stargazer html table
+stargazer(data.frame(GP_summary_pvals), # Treat table as a data frame for proper rounding using digits=3
+          type="html",                  # Choose a html-style table (so no HTML, LaTeX...)
+          summary=FALSE,                # Don't summarize the data, just print the real values
+          digits=3,                     # round the numbers in the table to 3 decimals
+          title="Fake data glycan peaks p-values", 
+          notes="alpha = 0.05") 
+```
+
+<table style="text-align:center"><caption><strong>Fake data glycan peaks p-values</strong></caption>
+<tr><td colspan="7" style="border-bottom: 1px solid black"></td></tr><tr><td style="text-align:left"></td><td>GP</td><td>Age</td><td>Complications1</td><td>CTR_DIAB1</td><td>Metabolic1</td><td>Sex1</td></tr>
+<tr><td colspan="7" style="border-bottom: 1px solid black"></td></tr><tr><td style="text-align:left">1</td><td>GP1</td><td>0.685</td><td>0.796</td><td>0.654</td><td>0.402</td><td>0.616</td></tr>
+<tr><td style="text-align:left">2</td><td>GP10</td><td>0.593</td><td>0.055</td><td>0.495</td><td>0.891</td><td>0.062</td></tr>
+<tr><td style="text-align:left">3</td><td>GP2</td><td>0.198</td><td>0.667</td><td>0.295</td><td>0.670</td><td>0.626</td></tr>
+<tr><td style="text-align:left">4</td><td>GP3</td><td>0.908</td><td>0.297</td><td>0.554</td><td>0.469</td><td>0.095</td></tr>
+<tr><td style="text-align:left">5</td><td>GP4</td><td>0.989</td><td>0.732</td><td>0.244</td><td>0.798</td><td>0.197</td></tr>
+<tr><td style="text-align:left">6</td><td>GP5</td><td>0.552</td><td>0.008</td><td>0.567</td><td>0.067</td><td>0.909</td></tr>
+<tr><td style="text-align:left">7</td><td>GP6</td><td>0.989</td><td>0.087</td><td>0.501</td><td>0.307</td><td>0.937</td></tr>
+<tr><td style="text-align:left">8</td><td>GP7</td><td>0.600</td><td>0.553</td><td>0.892</td><td>0.566</td><td>0.334</td></tr>
+<tr><td style="text-align:left">9</td><td>GP8</td><td>0.551</td><td>0.637</td><td>0.433</td><td>0.097</td><td>0.145</td></tr>
+<tr><td style="text-align:left">10</td><td>GP9</td><td>0.331</td><td>0.824</td><td>0.425</td><td>0.140</td><td>0.866</td></tr>
+<tr><td colspan="7" style="border-bottom: 1px solid black"></td></tr><tr><td colspan="7" style="text-align:left">alpha = 0.05</td></tr>
+</table>
